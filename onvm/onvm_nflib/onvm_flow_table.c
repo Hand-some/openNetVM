@@ -230,16 +230,19 @@ onvm_ft_free(struct onvm_ft *table) {
 
 /* Gary -- set NFs lcore */
 void
-onvm_test_deal_flow(struct onvm_nf_info nf_info){
-	present_flow = nf_info->instance;
+//onvm_test_deal_flow(struct onvm_nf_info nf_info){
+onvm_test_deal_flow(void){
+	//present_flow = nf_info->instance;
+	static int instance = 0;
+	present_nf = instance;
 	lcore = rte_get_next_lcore();
-	onvm_test_lcore(present_flow, lcore, present_flow + 1);	
+	onvm_test_lcore(present_nf, lcore);	
+	instance++;
 }
 
 void
-onvm_test_lcore(int flow_info , int lcore, int next_flow){
-	system("./docker.sh -h /mnt/huge -o  /proj/postman-PG0/lm/openNetVM -D /dev/uio0,/dev/uio1 -n basic_monitor -c \"./examples/speed_tester/go.sh %d %d %d\"", 
+onvm_test_lcore(int flow_info , int lcore){
+	system("./docker.sh -h /mnt/huge -o  /proj/postman-PG0/lm/openNetVM -D /dev/uio0,/dev/uio1 -n basic_monitor -c \"./examples/speed_tester/go.sh %d %d\"", 
 		flow_info, 
-		lcore_id, 
-		next_flow);
+		lcore_id);
 }
