@@ -227,3 +227,19 @@ onvm_ft_free(struct onvm_ft *table) {
         rte_hash_reset(table->hash);
         rte_hash_free(table->hash);
 }
+
+/* Gary -- set NFs lcore */
+static void
+onvm_test_deal_flow(onvm_nf_info nf_info){
+	present_flow = nf_info->instance;
+	lcore = rte_get_next_lcore();
+	onvm_test_lcore(present_flow, lcore, present_flow + 1);	
+}
+
+void
+onvm_test_lcore(int flow_info , int lcore, int next_flow){
+	system("./docker.sh -h /mnt/huge -o  /proj/postman-PG0/lm/openNetVM -D /dev/uio0,/dev/uio1 -n basic_monitor -c \"./examples/speed_tester/go.sh %d %d %d\"", 
+		flow_info, 
+		lcore_id, 
+		next_flow);
+}
