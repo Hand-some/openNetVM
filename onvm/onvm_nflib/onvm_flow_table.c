@@ -229,8 +229,8 @@ onvm_ft_free(struct onvm_ft *table) {
 }
 
 /* Gary -- set NFs lcore */
-static void
-onvm_test_deal_flow(onvm_nf_info nf_info){
+void
+onvm_test_deal_flow(struct onvm_nf_info nf_info){
 	present_flow = nf_info->instance;
 	lcore = rte_get_next_lcore();
 	onvm_test_lcore(present_flow, lcore, present_flow + 1);	
