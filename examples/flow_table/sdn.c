@@ -215,7 +215,6 @@ void datapath_handle_read(struct datapath *dp)
 			case OFPT_FLOW_MOD:
                                 debug_msg(dp, "got flow_mod");
     				struct ofp_flow_mod *fm;
-                                fm = (struct ofp_flow_mod *) ofph;
                                 int ret;
                                 struct onvm_ft_ipv4_5tuple *fk;
                                 struct onvm_service_chain *sc;
@@ -231,6 +230,14 @@ void datapath_handle_read(struct datapath *dp)
                                 ret = onvm_flow_dir_get_key(fk, &flow_entry);
                                 if (ret == -ENOENT) {
                                         ret = onvm_flow_dir_add_key(fk, &flow_entry);
+					/* Gary's change here 
+					* add the corresponding sc to the key */
+					onvm_test_deal_flow();
+					flow_entry->sc->chain_length = 1;
+					flow_entry->sc->ref_cnt = 1;
+					flow_entry->sc->sc[0]->action = ONVM_NF_ACTION_OUT;
+					flow_entry->sc->sc[0]->destination = 1;
+					/* end of the change */
                                 }
 				else if (ret >= 0) {
 					rte_free(flow_entry->key);
