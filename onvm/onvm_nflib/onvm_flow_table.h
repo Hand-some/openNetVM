@@ -119,6 +119,14 @@ onvm_ft_iterate(struct onvm_ft *table, const void **key, void **data, uint32_t *
 void
 onvm_ft_free(struct onvm_ft *table);
 
+/* Gary -- set the lcore */ 
+void
+onvm_test_deal_flow(struct onvm_nf_info nf_info);
+
+void
+onvm_test_lcore(int flow_info, int lcore, int next_flow);
+/* Gary -- set the lcore */
+
 /* TODO(@sdnfv): Add function to calculate hash and then make lookup/get
  * have versions with precomputed hash values */
 // hash_sig_t
