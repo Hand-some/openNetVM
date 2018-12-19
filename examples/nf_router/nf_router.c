@@ -215,17 +215,44 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
         struct arp_hdr *in_arp_hdr;
         struct ipv4_hdr* ip;
         int i;
-
+        
+        /* Gary's change here */
+        int32_t tbl_index;
+        struct onvm_flow_entry *flow_entry;
+        
+        if(!onvm_pkt_is_ipv4(pkt)) {
+                printf("Non-ipv4 packet\n");
+                meta->action = ONVM_NF_ACTION_TONF;
+                meta->destination = def_destination;
+                return 0;
+        }
+        
+        tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
+        
+        if(tbl_index == -ENOENT){
+                #ifdef DEBUG_PRINT
+		printf("Unkown flow\n");
+		#endif
+                /* New flow */
+                action = flow_table_miss(pkt, meta);
+        }
+        
+        /* Gary's change end here */
+        
         ip = onvm_pkt_ipv4_hdr(pkt);
-
+        
         /* If the packet doesn't have an IP header check if its an ARP, if so fwd it to the matched NF */
         if (ip == NULL) {
                 eth_hdr = onvm_pkt_ether_hdr(pkt);
                 if (rte_cpu_to_be_16(eth_hdr->ether_type) == ETHER_TYPE_ARP) {
                         in_arp_hdr = rte_pktmbuf_mtod_offset(pkt, struct arp_hdr *, sizeof(struct ether_hdr));
                         for (i = 0; i < nf_count; i++) {
-                                if (in_arp_hdr->arp_data.arp_tip == fwd_nf[i].ip) {
-                                        meta->destination = fwd_nf[i].dest;
+                                //if (in_arp_hdr->arp_data.arp_tip == fwd_nf[i].ip) {
+                                /* Gary's change here */
+                                if (in_arp_hdr->arp_data.arp_tip == flow_entry->key->ip_dst) {
+                                        //meta->destination = fwd_nf[i].dest;
+                                        meta->destination = flow_entry->sc->SC[i]->destination;
+                                /* Gary's change end here */
                                         meta->action = ONVM_NF_ACTION_TONF;
                                         return 0;
                                 }
@@ -242,8 +269,16 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
         }
 
         for (i = 0; i < nf_count; i++) {
-                if (fwd_nf[i].ip == ip->dst_addr) {
-                        meta->destination = fwd_nf[i].dest;
+        
+                /* Gary's change here */
+                
+                //if (fwd_nf[i].ip == ip->dst_addr) {
+                if (flow_entry->key->ip_dst == ip->dst_addr) {
+                        //meta->destination = fwd_nf[i].dest;
+                        meta->destination = flow_entry->sc->SC[i]->destination;
+                        
+                /* Gary's change end here */
+                
                         meta->action = ONVM_NF_ACTION_TONF;
                         return 0;
                 }
@@ -271,7 +306,11 @@ int main(int argc, char *argv[]) {
                 rte_exit(EXIT_FAILURE, "Invalid command-line arguments\n");
         }
         parse_router_config();
-
+        
+        // Gary's change for the flow_dir
+        // onvm_flow_dir_nf_init();
+        // printf("Starting packet handler.\n");
+        
         onvm_nflib_run(nf_info, &packet_handler);
         printf("If we reach here, program is ending\n");
         return 0;
