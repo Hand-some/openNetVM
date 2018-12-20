@@ -1,0 +1,4 @@
+LIST_SIZE # The number of the default hash input number #
+hash1 nf_destination
+hash2 nf_destination
+......
