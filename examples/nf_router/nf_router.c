@@ -125,6 +125,10 @@ parse_app_args(int argc, char *argv[], const char *progname) {
  * and fills up the forward nf array. This includes the ip and dest 
  * address of the onvm_nf
  */
+ 
+ /* Gary's change here. Another file named "config_hash.conf" has been made. 
+ So this function will not be used for search the NFs. 
+ 
 static int
 parse_router_config(void) {
         int ret, temp, i;
@@ -173,7 +177,51 @@ parse_router_config(void) {
 
         return ret;
 }
+Gary' change end here */
 
+/* Gary's change here. Rewrite the function of parse_router_config. 
+Now the pkt will be routed by its hash key which the form is onvm_ft_ipv4_5tuple. */
+static int
+parse_router_config(void) {
+	int ret, temp, i;
+        uint32_t hash;
+        FILE * cfg;
+
+        cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
+        if (cfg == NULL) {
+                rte_exit(EXIT_FAILURE, "Error openning server \'%s\' config\n", cfg_filename);
+        }
+	// In the config_hash file, first line's second parameter is the default nf router number.
+        ret = fscanf(cfg, "%*s %d", &temp);	
+	
+	if (temp <= 0) {
+                rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
+        }
+        nf_count = temp;
+	
+	fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf) * nf_count, 0);
+        if (fwd_nf == NULL) {
+                rte_exit(EXIT_FAILURE, "Malloc failed, can't allocate forward_nf array\n");
+        }
+	
+	for (i = 0; i < nf_count; i++) {
+                ret = fscanf(cfg, "%I32u %d", &hash, &temp);
+                if (ret != 2) {
+                        rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
+                }
+		
+                
+		ret = onvm_pkt_parse_hash_key(hash, &fwd_nf[i].hash);
+                if (ret < 0) {
+                        rte_exit(EXIT_FAILURE, "Error parsing config IP address #%d\n", i);
+                }
+
+                if (temp < 0) {
+                        rte_exit(EXIT_FAILURE, "Error parsing config dest #%d\n", i);
+                }
+                fwd_nf[i].dest = temp;
+        }
+}
 
 /*
  * This function displays stats. It uses ANSI terminal codes to clear
