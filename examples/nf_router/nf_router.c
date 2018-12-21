@@ -66,7 +66,7 @@ char * cfg_filename;
 struct forward_nf *fwd_nf;
 
 struct forward_nf {
-        uint32_t ip;
+        uint32_t hash;
         uint8_t dest;
 };
 
@@ -184,7 +184,7 @@ Now the pkt will be routed by its hash key which the form is onvm_ft_ipv4_5tuple
 static int
 parse_router_config(void) {
 	int ret, temp, i;
-        uint32_t hash;
+        int32_t hash;
         FILE * cfg;
 
         cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
@@ -205,7 +205,7 @@ parse_router_config(void) {
         }
 	
 	for (i = 0; i < nf_count; i++) {
-                ret = fscanf(cfg, "%I32u %d", &hash, &temp);
+                ret = fscanf(cfg, "%I32 %d", &hash, &temp);
                 if (ret != 2) {
                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
                 }
@@ -277,30 +277,52 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
         
         tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
         
-        if(tbl_index == -ENOENT){
-                #ifdef DEBUG_PRINT
+	if(tbl_index >= 0);
+	
+	else if (tbl_index == -ENOENT) {
+		#ifdef DEBUG_PRINT
 		printf("Unkown flow\n");
 		#endif
                 /* New flow */
-                action = flow_table_miss(pkt, meta);
+		tbl_index = onvm_flow_dir_add_pkt(pkt, &flow_entry);
         }
-        
+        else {
+                #ifdef DEBUG_PRINT
+                printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
+                onvm_pkt_print(pkt);
+                #endif
+                onvm_nflib_stop(nf_info);
+                rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
+        }
+	
+	for (i = 0; i < nf_count; i++) {
+                if (fwd_nf[i].hash == tbl_index) {
+                        meta->destination = fwd_nf[i].dest;
+                        meta->action = ONVM_NF_ACTION_TONF;
+                        return 0;
+                }
+        }
+	
+	meta->action = ONVM_NF_ACTION_DROP;
+        meta->destination = 0;
+	return 0;
+	
         /* Gary's change end here */
-        
+        /*
         ip = onvm_pkt_ipv4_hdr(pkt);
         
-        /* If the packet doesn't have an IP header check if its an ARP, if so fwd it to the matched NF */
+        /* If the packet doesn't have an IP header check if its an ARP, if so fwd it to the matched NF 
         if (ip == NULL) {
                 eth_hdr = onvm_pkt_ether_hdr(pkt);
                 if (rte_cpu_to_be_16(eth_hdr->ether_type) == ETHER_TYPE_ARP) {
                         in_arp_hdr = rte_pktmbuf_mtod_offset(pkt, struct arp_hdr *, sizeof(struct ether_hdr));
                         for (i = 0; i < nf_count; i++) {
                                 //if (in_arp_hdr->arp_data.arp_tip == fwd_nf[i].ip) {
-                                /* Gary's change here */
+                                /* Gary's change here 
                                 if (in_arp_hdr->arp_data.arp_tip == flow_entry->key->ip_dst) {
                                         //meta->destination = fwd_nf[i].dest;
                                         meta->destination = flow_entry->sc->SC[i]->destination;
-                                /* Gary's change end here */
+                                /* Gary's change end here 
                                         meta->action = ONVM_NF_ACTION_TONF;
                                         return 0;
                                 }
@@ -318,14 +340,14 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 
         for (i = 0; i < nf_count; i++) {
         
-                /* Gary's change here */
+                /* Gary's change here 
                 
                 //if (fwd_nf[i].ip == ip->dst_addr) {
                 if (flow_entry->key->ip_dst == ip->dst_addr) {
                         //meta->destination = fwd_nf[i].dest;
                         meta->destination = flow_entry->sc->SC[i]->destination;
                         
-                /* Gary's change end here */
+                /* Gary's change end here 
                 
                         meta->action = ONVM_NF_ACTION_TONF;
                         return 0;
@@ -335,7 +357,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
         meta->action = ONVM_NF_ACTION_DROP;
         meta->destination = 0;
 
-        return 0;
+        return 0;*/
 }
 
 
@@ -356,8 +378,8 @@ int main(int argc, char *argv[]) {
         parse_router_config();
         
         // Gary's change for the flow_dir
-        // onvm_flow_dir_nf_init();
-        // printf("Starting packet handler.\n");
+        onvm_flow_dir_nf_init();
+        printf("Starting packet handler.\n");
         
         onvm_nflib_run(nf_info, &packet_handler);
         printf("If we reach here, program is ending\n");
