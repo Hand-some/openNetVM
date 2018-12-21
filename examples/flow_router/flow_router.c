@@ -71,7 +71,7 @@ char * cfg_filename;
 struct forward_nf *fwd_nf;
 
 struct forward_nf {
-        uint32_t hash;
+        int32_t hash;
         uint8_t dest;
 };
 
@@ -131,61 +131,61 @@ parse_app_args(int argc, char *argv[], const char *progname) {
  * address of the onvm_nf
  */
 
- /* Gary's change here. Another file named "config_hash.conf" has been made.
- So this function will not be used for search the NFs.
+ /* Gary's change here. Another file named "config_hash.conf" has been made. */
+//  So this function will not be used for search the NFs.
 
-static int
-parse_router_config(void) {
-        int ret, temp, i;
-        char ip[32];
-        FILE * cfg;
+// // static int
+// // parse_router_config(void) {
+// //         int ret, temp, i;
+// //         char ip[32];
+// //         FILE * cfg;
 
-        cfg  = fopen(cfg_filename, "r");
-        if (cfg == NULL) {
-                rte_exit(EXIT_FAILURE, "Error openning server \'%s\' config\n", cfg_filename);
-        }
-        ret = fscanf(cfg, "%*s %d", &temp);
-        if (temp <= 0) {
-                rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
-        }
-        nf_count = temp;
+//         cfg  = fopen(cfg_filename, "r");
+//         if (cfg == NULL) {
+//                 rte_exit(EXIT_FAILURE, "Error openning server \'%s\' config\n", cfg_filename);
+//         }
+//         ret = fscanf(cfg, "%*s %d", &temp);
+//         if (temp <= 0) {
+//                 rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
+//         }
+//         nf_count = temp;
 
-        fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf) * nf_count, 0);
-        if (fwd_nf == NULL) {
-                rte_exit(EXIT_FAILURE, "Malloc failed, can't allocate forward_nf array\n");
-        }
+//         fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf) * nf_count, 0);
+//         if (fwd_nf == NULL) {
+//                 rte_exit(EXIT_FAILURE, "Malloc failed, can't allocate forward_nf array\n");
+//         }
 
-        for (i = 0; i < nf_count; i++) {
-                ret = fscanf(cfg, "%s %d", ip, &temp);
-                if (ret != 2) {
-                        rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
-                }
+//         for (i = 0; i < nf_count; i++) {
+//                 ret = fscanf(cfg, "%s %d", ip, &temp);
+//                 if (ret != 2) {
+//                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
+//                 }
 
-                ret = onvm_pkt_parse_ip(ip, &fwd_nf[i].ip);
-                if (ret < 0) {
-                        rte_exit(EXIT_FAILURE, "Error parsing config IP address #%d\n", i);
-                }
+//                 ret = onvm_pkt_parse_ip(ip, &fwd_nf[i].ip);
+//                 if (ret < 0) {
+//                         rte_exit(EXIT_FAILURE, "Error parsing config IP address #%d\n", i);
+//                 }
 
-                if (temp < 0) {
-                        rte_exit(EXIT_FAILURE, "Error parsing config dest #%d\n", i);
-                }
-                fwd_nf[i].dest = temp;
-        }
+//                 if (temp < 0) {
+//                         rte_exit(EXIT_FAILURE, "Error parsing config dest #%d\n", i);
+//                 }
+//                 fwd_nf[i].dest = temp;
+//         }
 
-        fclose(cfg);
-        printf("\nDest config (%d):\n",nf_count);
-        for (i = 0; i < nf_count; i++) {
-                printf("%" PRIu8 ".%" PRIu8 ".%" PRIu8 ".%" PRIu8 " ",
-                        fwd_nf[i].ip & 0xFF, (fwd_nf[i].ip >> 8) & 0xFF, (fwd_nf[i].ip >> 16) & 0xFF, (fwd_nf[i].ip >> 24) & 0xFF);
-                printf(" %d\n", fwd_nf[i].dest);
-        }
+//         fclose(cfg);
+//         printf("\nDest config (%d):\n",nf_count);
+//         for (i = 0; i < nf_count; i++) {
+//                 printf("%" PRIu8 ".%" PRIu8 ".%" PRIu8 ".%" PRIu8 " ",
+//                         fwd_nf[i].ip & 0xFF, (fwd_nf[i].ip >> 8) & 0xFF, (fwd_nf[i].ip >> 16) & 0xFF, (fwd_nf[i].ip >> 24) & 0xFF);
+//                 printf(" %d\n", fwd_nf[i].dest);
+//         }
 
-        return ret;
-}
-Gary' change end here */
+//         return ret;
+// }
+//  Gary' change end here */
 
 /* Gary's change here. Rewrite the function of parse_router_config.
-Now the pkt will be routed by its hash key which the form is onvm_ft_ipv4_5tuple. */
+ * Now the pkt will be routed by its hash key which the form is onvm_ft_ipv4_5tuple. */
 static int
 parse_router_config(void) {
 	int ret, temp, i;
@@ -210,7 +210,7 @@ parse_router_config(void) {
         }
 
 	for (i = 0; i < nf_count; i++) {
-                ret = fscanf(cfg, "%I32 %d", &hash, &temp);
+                ret = fscanf(cfg, "%I32d %d", &hash, &temp);
                 if (ret != 2) {
                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
                 }
@@ -226,6 +226,7 @@ parse_router_config(void) {
                 }
                 fwd_nf[i].dest = temp;
         }
+	return ret;
 }
 
 /*
@@ -264,8 +265,8 @@ do_stats_display(struct rte_mbuf* pkt) {
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
         static uint32_t counter = 0;
-        struct ether_hdr *eth_hdr;
-        struct arp_hdr *in_arp_hdr;
+        //struct ether_hdr *eth_hdr;
+        //struct arp_hdr *in_arp_hdr;
         struct ipv4_hdr* ip;
         int i;
 
@@ -276,7 +277,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
         if(!onvm_pkt_is_ipv4(pkt)) {
                 printf("Non-ipv4 packet\n");
                 meta->action = ONVM_NF_ACTION_TONF;
-                meta->destination = def_destination;
+                meta->destination = 0;
                 return 0;
         }
 
@@ -313,56 +314,56 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 	return 0;
 
         /* Gary's change end here */
-        /*
-        ip = onvm_pkt_ipv4_hdr(pkt);
+        
+//         ip = onvm_pkt_ipv4_hdr(pkt);
 
-        /* If the packet doesn't have an IP header check if its an ARP, if so fwd it to the matched NF
-        if (ip == NULL) {
-                eth_hdr = onvm_pkt_ether_hdr(pkt);
-                if (rte_cpu_to_be_16(eth_hdr->ether_type) == ETHER_TYPE_ARP) {
-                        in_arp_hdr = rte_pktmbuf_mtod_offset(pkt, struct arp_hdr *, sizeof(struct ether_hdr));
-                        for (i = 0; i < nf_count; i++) {
-                                //if (in_arp_hdr->arp_data.arp_tip == fwd_nf[i].ip) {
-                                /* Gary's change here
-                                if (in_arp_hdr->arp_data.arp_tip == flow_entry->key->ip_dst) {
-                                        //meta->destination = fwd_nf[i].dest;
-                                        meta->destination = flow_entry->sc->SC[i]->destination;
-                                /* Gary's change end here
-                                        meta->action = ONVM_NF_ACTION_TONF;
-                                        return 0;
-                                }
-                        }
-                }
-                meta->action = ONVM_NF_ACTION_DROP;
-                meta->destination = 0;
-                return 0;
-        }
+//         /* If the packet doesn't have an IP header check if its an ARP, if so fwd it to the matched NF
+//         if (ip == NULL) {
+//                 eth_hdr = onvm_pkt_ether_hdr(pkt);
+//                 if (rte_cpu_to_be_16(eth_hdr->ether_type) == ETHER_TYPE_ARP) {
+//                         in_arp_hdr = rte_pktmbuf_mtod_offset(pkt, struct arp_hdr *, sizeof(struct ether_hdr));
+//                         for (i = 0; i < nf_count; i++) {
+//                                 //if (in_arp_hdr->arp_data.arp_tip == fwd_nf[i].ip) {
+//                                 /* Gary's change here
+//                                 if (in_arp_hdr->arp_data.arp_tip == flow_entry->key->ip_dst) {
+//                                         //meta->destination = fwd_nf[i].dest;
+//                                         meta->destination = flow_entry->sc->SC[i]->destination;
+//                                 /* Gary's change end here
+//                                         meta->action = ONVM_NF_ACTION_TONF;
+//                                         return 0;
+//                                 }
+//                         }
+//                 }
+//                 meta->action = ONVM_NF_ACTION_DROP;
+//                 meta->destination = 0;
+//                 return 0;
+//         }
 
-        if (++counter == print_delay) {
-                do_stats_display(pkt);
-                counter = 0;
-        }
+//         if (++counter == print_delay) {
+//                 do_stats_display(pkt);
+//                 counter = 0;
+//         }
 
-        for (i = 0; i < nf_count; i++) {
+//         for (i = 0; i < nf_count; i++) {
 
-                /* Gary's change here
+//                 /* Gary's change here
 
-                //if (fwd_nf[i].ip == ip->dst_addr) {
-                if (flow_entry->key->ip_dst == ip->dst_addr) {
-                        //meta->destination = fwd_nf[i].dest;
-                        meta->destination = flow_entry->sc->SC[i]->destination;
+//                 //if (fwd_nf[i].ip == ip->dst_addr) {
+//                 if (flow_entry->key->ip_dst == ip->dst_addr) {
+//                         //meta->destination = fwd_nf[i].dest;
+//                         meta->destination = flow_entry->sc->SC[i]->destination;
 
-                /* Gary's change end here
+//                 /* Gary's change end here
 
-                        meta->action = ONVM_NF_ACTION_TONF;
-                        return 0;
-                }
-        }
+//                         meta->action = ONVM_NF_ACTION_TONF;
+//                         return 0;
+//                 }
+//         }
 
-        meta->action = ONVM_NF_ACTION_DROP;
-        meta->destination = 0;
+//         meta->action = ONVM_NF_ACTION_DROP;
+//         meta->destination = 0;
 
-        return 0;*/
+//         return 0;
 }
 
 
@@ -370,7 +371,7 @@ int main(int argc, char *argv[]) {
         int arg_offset;
 
         const char *progname = argv[0];
-
+	
         if ((arg_offset = onvm_nflib_init(argc, argv, NF_TAG, &nf_info)) < 0)
                 return -1;
         argc -= arg_offset;
