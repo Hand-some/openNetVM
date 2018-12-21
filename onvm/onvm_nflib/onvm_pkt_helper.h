@@ -140,6 +140,9 @@ onvm_pkt_print_ether(struct ether_hdr* hdr);
 int
 onvm_pkt_parse_ip(char * ip_str, uint32_t* dest);
 
+int
+onvm_pkt_parse_hash_key(int32_t hash, uint32_t* dest);
+
 /**
  * Parsing mac addr of form xx:xx:xx:xx:xx:xx into dest array
  */
