@@ -57,6 +57,11 @@
 
 #include "onvm_nflib.h"
 #include "onvm_pkt_helper.h"
+#include "flow_table.h"
+#include "sdn.h"
+#include "onvm_flow_table.h"
+#include "onvm_flow_dir.h"
+#include "onvm_sc_common.h"
 
 #define NF_TAG "router"
 
