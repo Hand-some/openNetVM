@@ -345,7 +345,7 @@ void onvm_pkt_print_ether(struct ether_hdr* hdr) {
 /* Gary's change here */
 // Add a function to fill the hash key
 int
-onvm_pkt_parse_key_hash(uint32_t hash_key, uint32_t * dest){
+onvm_pkt_parse_hash_key(int32_t hash_key, uint32_t * dest){
         int ret;
         uint32_t hash;
         if(dest == NULL)
