@@ -57,8 +57,6 @@
 
 #include "onvm_nflib.h"
 #include "onvm_pkt_helper.h"
-#include "../flow_table/flow_table.h"
-#include "../flow_table/sdn.h"
 #include "onvm_flow_table.h"
 #include "onvm_flow_dir.h"
 #include "onvm_sc_common.h"
@@ -74,6 +72,11 @@ struct forward_nf {
         int32_t hash;
         uint8_t dest;
 };
+struct flow_table_entry {
+        uint32_t count; /* Number of packets in flow */
+        uint8_t action; /* Action to be performed */
+        uint16_t destination; /* where to go next */
+};
 
 /* Struct that contains information about this NF */
 struct onvm_nf_info *nf_info;
@@ -86,7 +89,7 @@ static uint32_t print_delay = 1000000;
  * Print a usage message
  */
 static void
-usage2(const char *progname) {
+usage(const char *progname) {
         printf("Usage: %s [EAL args] -- [NF_LIB args] -- <router_config> -p <print_delay>\n\n", progname);
 }
 
@@ -106,7 +109,7 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                         print_delay = strtoul(optarg, NULL, 10);
                         break;
                 case '?':
-                        usage2(progname);
+                        usage(progname);
                         if (optopt == 'd')
                                 RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
                         else if (optopt == 'p')
@@ -117,7 +120,7 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                                 RTE_LOG(INFO, APP, "Unknown option character `\\x%x'.\n", optopt);
                         return -1;
                 default:
-                        usage2(progname);
+                        usage(progname);
                         return -1;
                 }
         }
@@ -130,59 +133,6 @@ parse_app_args(int argc, char *argv[], const char *progname) {
  * and fills up the forward nf array. This includes the ip and dest
  * address of the onvm_nf
  */
-
- /* Gary's change here. Another file named "config_hash.conf" has been made. */
-//  So this function will not be used for search the NFs.
-
-// // static int
-// // parse_router_config(void) {
-// //         int ret, temp, i;
-// //         char ip[32];
-// //         FILE * cfg;
-
-//         cfg  = fopen(cfg_filename, "r");
-//         if (cfg == NULL) {
-//                 rte_exit(EXIT_FAILURE, "Error openning server \'%s\' config\n", cfg_filename);
-//         }
-//         ret = fscanf(cfg, "%*s %d", &temp);
-//         if (temp <= 0) {
-//                 rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
-//         }
-//         nf_count = temp;
-
-//         fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf) * nf_count, 0);
-//         if (fwd_nf == NULL) {
-//                 rte_exit(EXIT_FAILURE, "Malloc failed, can't allocate forward_nf array\n");
-//         }
-
-//         for (i = 0; i < nf_count; i++) {
-//                 ret = fscanf(cfg, "%s %d", ip, &temp);
-//                 if (ret != 2) {
-//                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
-//                 }
-
-//                 ret = onvm_pkt_parse_ip(ip, &fwd_nf[i].ip);
-//                 if (ret < 0) {
-//                         rte_exit(EXIT_FAILURE, "Error parsing config IP address #%d\n", i);
-//                 }
-
-//                 if (temp < 0) {
-//                         rte_exit(EXIT_FAILURE, "Error parsing config dest #%d\n", i);
-//                 }
-//                 fwd_nf[i].dest = temp;
-//         }
-
-//         fclose(cfg);
-//         printf("\nDest config (%d):\n",nf_count);
-//         for (i = 0; i < nf_count; i++) {
-//                 printf("%" PRIu8 ".%" PRIu8 ".%" PRIu8 ".%" PRIu8 " ",
-//                         fwd_nf[i].ip & 0xFF, (fwd_nf[i].ip >> 8) & 0xFF, (fwd_nf[i].ip >> 16) & 0xFF, (fwd_nf[i].ip >> 24) & 0xFF);
-//                 printf(" %d\n", fwd_nf[i].dest);
-//         }
-
-//         return ret;
-// }
-//  Gary' change end here */
 
 /* Gary's change here. Rewrite the function of parse_router_config.
  * Now the pkt will be routed by its hash key which the form is onvm_ft_ipv4_5tuple. */
@@ -264,13 +214,7 @@ do_stats_display(struct rte_mbuf* pkt) {
 
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
-        static uint32_t counter = 0;
-        //struct ether_hdr *eth_hdr;
-        //struct arp_hdr *in_arp_hdr;
-        struct ipv4_hdr* ip;
-        int i;
-
-        /* Gary's change here */
+        int i；
         int32_t tbl_index;
         struct onvm_flow_entry *flow_entry;
 
@@ -308,62 +252,9 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
                         return 0;
                 }
         }
-
 	meta->action = ONVM_NF_ACTION_DROP;
         meta->destination = 0;
 	return 0;
-
-        /* Gary's change end here */
-        
-//         ip = onvm_pkt_ipv4_hdr(pkt);
-
-//         /* If the packet doesn't have an IP header check if its an ARP, if so fwd it to the matched NF
-//         if (ip == NULL) {
-//                 eth_hdr = onvm_pkt_ether_hdr(pkt);
-//                 if (rte_cpu_to_be_16(eth_hdr->ether_type) == ETHER_TYPE_ARP) {
-//                         in_arp_hdr = rte_pktmbuf_mtod_offset(pkt, struct arp_hdr *, sizeof(struct ether_hdr));
-//                         for (i = 0; i < nf_count; i++) {
-//                                 //if (in_arp_hdr->arp_data.arp_tip == fwd_nf[i].ip) {
-//                                 /* Gary's change here
-//                                 if (in_arp_hdr->arp_data.arp_tip == flow_entry->key->ip_dst) {
-//                                         //meta->destination = fwd_nf[i].dest;
-//                                         meta->destination = flow_entry->sc->SC[i]->destination;
-//                                 /* Gary's change end here
-//                                         meta->action = ONVM_NF_ACTION_TONF;
-//                                         return 0;
-//                                 }
-//                         }
-//                 }
-//                 meta->action = ONVM_NF_ACTION_DROP;
-//                 meta->destination = 0;
-//                 return 0;
-//         }
-
-//         if (++counter == print_delay) {
-//                 do_stats_display(pkt);
-//                 counter = 0;
-//         }
-
-//         for (i = 0; i < nf_count; i++) {
-
-//                 /* Gary's change here
-
-//                 //if (fwd_nf[i].ip == ip->dst_addr) {
-//                 if (flow_entry->key->ip_dst == ip->dst_addr) {
-//                         //meta->destination = fwd_nf[i].dest;
-//                         meta->destination = flow_entry->sc->SC[i]->destination;
-
-//                 /* Gary's change end here
-
-//                         meta->action = ONVM_NF_ACTION_TONF;
-//                         return 0;
-//                 }
-//         }
-
-//         meta->action = ONVM_NF_ACTION_DROP;
-//         meta->destination = 0;
-
-//         return 0;
 }
 
 
