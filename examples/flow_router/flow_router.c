@@ -140,6 +140,7 @@ static int
 parse_router_config(void) {
 	int ret, temp, i;
         int32_t hash;
+	char * nf_tags;
         FILE * cfg;
 
         cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
@@ -154,13 +155,13 @@ parse_router_config(void) {
         }
         nf_count = temp;
 
-	fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf) * nf_count, 0);
+	
         if (fwd_nf == NULL) {
                 rte_exit(EXIT_FAILURE, "Malloc failed, can't allocate forward_nf array\n");
         }
 
 	for (i = 0; i < nf_count; i++) {
-                ret = fscanf(cfg, "%I32d %d", &hash, &temp);
+                ret = fscanf(cfg, "%I32d %s", &hash, nf_tags);
                 if (ret != 2) {
                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
                 }
@@ -168,13 +169,12 @@ parse_router_config(void) {
 
 		ret = onvm_pkt_parse_hash_key(hash, &fwd_nf[i].hash);
                 if (ret < 0) {
-                        rte_exit(EXIT_FAILURE, "Error parsing config IP address #%d\n", i);
+                        rte_exit(EXIT_FAILURE, "Error parsing config hash key #%d\n", i);
                 }
 
-                if (temp < 0) {
-                        rte_exit(EXIT_FAILURE, "Error parsing config dest #%d\n", i);
+                if (nf_tags == NULL) {
+                        rte_exit(EXIT_FAILURE, "Error parsing config NF_TAG #%d\n", i);
                 }
-                fwd_nf[i].dest = temp;
         }
 	return ret;
 }
@@ -214,7 +214,8 @@ do_stats_display(struct rte_mbuf* pkt) {
 
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
-        int i；
+        static uint32_t counter = 0;
+	int i;
         int32_t tbl_index;
         struct onvm_flow_entry *flow_entry;
 
@@ -245,7 +246,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
                 rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
         }
 
-	for (i = 0; i < nf_count; i++) {
+	for (i = 0; i < nf_count; i+a+) {
                 if (fwd_nf[i].hash == tbl_index) {
                         meta->destination = fwd_nf[i].dest;
                         meta->action = ONVM_NF_ACTION_TONF;
