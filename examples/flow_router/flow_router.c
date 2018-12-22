@@ -57,8 +57,8 @@
 
 #include "onvm_nflib.h"
 #include "onvm_pkt_helper.h"
-#include "flow_table.h"
-#include "sdn.h"
+#include "../flow_table/flow_table.h"
+#include "../flow_table/sdn.h"
 #include "onvm_flow_table.h"
 #include "onvm_flow_dir.h"
 #include "onvm_sc_common.h"
@@ -86,7 +86,7 @@ static uint32_t print_delay = 1000000;
  * Print a usage message
  */
 static void
-usage(const char *progname) {
+usage2(const char *progname) {
         printf("Usage: %s [EAL args] -- [NF_LIB args] -- <router_config> -p <print_delay>\n\n", progname);
 }
 
@@ -106,7 +106,7 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                         print_delay = strtoul(optarg, NULL, 10);
                         break;
                 case '?':
-                        usage(progname);
+                        usage2(progname);
                         if (optopt == 'd')
                                 RTE_LOG(INFO, APP, "Option -%c requires an argument.\n", optopt);
                         else if (optopt == 'p')
@@ -117,7 +117,7 @@ parse_app_args(int argc, char *argv[], const char *progname) {
                                 RTE_LOG(INFO, APP, "Unknown option character `\\x%x'.\n", optopt);
                         return -1;
                 default:
-                        usage(progname);
+                        usage2(progname);
                         return -1;
                 }
         }
@@ -276,7 +276,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 
         if(!onvm_pkt_is_ipv4(pkt)) {
                 printf("Non-ipv4 packet\n");
-                meta->action = ONVM_NF_ACTION_TONF;
+                meta->action = ONVM_NF_ACTION_DROP;
                 meta->destination = 0;
                 return 0;
         }
