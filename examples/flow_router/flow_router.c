@@ -62,7 +62,7 @@
 #include "onvm_sc_common.h"
 
 #define NF_TAG "flow_router"
-#definde SET_CORE 8
+#define SET_CORE 8
 
 /* router information */
 uint8_t nf_count;
@@ -159,21 +159,17 @@ parse_router_config(void) {
         nf_count_pres = nf_count;
 	nf_count += temp;
 
-        if (fwd_nf == NULL) {
-                rte_exit(EXIT_FAILURE, "Malloc failed, can't allocate forward_nf array\n");
-        }
-	
 	for (i = nf_count_pres; i < nf_count; i++) {
                 ret = fscanf(cfg, "%I32d %s", &hash, nf_tags);
                 if (ret != 2) {
                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
                 }
 
-		fwd_nf = (struct forward_nf *)rte_realloc(fwd, sizeof(struct forward_nf) * (i + 1), 0);
+		fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (i + 1), 0);
 		ret = onvm_pkt_parse_hash_key(hash, &fwd_nf[i].hash);
-		
+
 		//nf_tag's usage?
-		
+
 		fwd_nf[i].dest = i + 1;
 		system("./docker.sh -h /mnt/huge -o  /proj/postman-PG0/lm/openNetVM -D /dev/uio0,/dev/uio1 -n basic_monitor -c \"./examples/speed_tester/go.sh %d %d %d\"", i + 1, core_index, i + 2);
                 core_index++;
@@ -255,7 +251,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 			nf_count++;
 		}
 		else{
-			fwd_nf = (struct forward_nf *)rte_realloc(fwd, sizeof(struct forward_nf) * (nf_count + 1), 0);
+			fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (nf_count + 1), 0);
 			nf_count++;
 		}
 		if(flag_conf == 1){
@@ -280,8 +276,11 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
                 onvm_nflib_stop(nf_info);
                 rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
         }
-
-	for (i = 0; i < nf_count; i+a+) {
+    if (++counter == print_delay) {
+        do_stats_display(pkt);
+        counter = 0;
+    }
+	for (i = 0; i < nf_count; i++) {
                 if (fwd_nf[i].hash == tbl_index) {
                         meta->destination = fwd_nf[i].dest;
                         meta->action = ONVM_NF_ACTION_TONF;
@@ -298,7 +297,7 @@ int main(int argc, char *argv[]) {
         int arg_offset;
 
         const char *progname = argv[0];
-	
+
         if ((arg_offset = onvm_nflib_init(argc, argv, NF_TAG, &nf_info)) < 0)
                 return -1;
         argc -= arg_offset;
