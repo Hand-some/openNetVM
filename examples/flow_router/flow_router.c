@@ -62,11 +62,13 @@
 #include "onvm_sc_common.h"
 
 #define NF_TAG "flow_router"
+#definde SET_CORE 8
 
 /* router information */
 uint8_t nf_count;
 char * cfg_filename;
 struct forward_nf *fwd_nf;
+static int core_index;
 
 struct forward_nf {
         int32_t hash;
@@ -140,6 +142,7 @@ static int
 parse_router_config(void) {
 	int ret, temp, i;
         int32_t hash;
+	int nf_count_pres;
 	char * nf_tags;
         FILE * cfg;
 
@@ -153,22 +156,31 @@ parse_router_config(void) {
 	if (temp <= 0) {
                 rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
         }
-        nf_count = temp;
+        nf_count_pres = nf_count;
+	nf_count += temp;
 
-	
         if (fwd_nf == NULL) {
                 rte_exit(EXIT_FAILURE, "Malloc failed, can't allocate forward_nf array\n");
         }
-
-	for (i = 0; i < nf_count; i++) {
+	
+	for (i = nf_count_pres; i < nf_count; i++) {
                 ret = fscanf(cfg, "%I32d %s", &hash, nf_tags);
                 if (ret != 2) {
                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
                 }
 
-
+		fwd_nf = (struct forward_nf *)rte_realloc(fwd, sizeof(struct forward_nf) * (i + 1), 0);
 		ret = onvm_pkt_parse_hash_key(hash, &fwd_nf[i].hash);
-                if (ret < 0) {
+		
+		//nf_tag's usage?
+		
+		fwd_nf[i].dest = i + 1;
+		system("./docker.sh -h /mnt/huge -o  /proj/postman-PG0/lm/openNetVM -D /dev/uio0,/dev/uio1 -n basic_monitor -c \"./examples/speed_tester/go.sh %d %d %d\"", i + 1, core_index, i + 2);
+                core_index++;
+		if(core_index >= SET_CORE){
+			rte_exit(EXIT_FAILURE, "Core index out of range\n");
+		}
+		if (ret < 0) {
                         rte_exit(EXIT_FAILURE, "Error parsing config hash key #%d\n", i);
                 }
 
@@ -215,6 +227,8 @@ do_stats_display(struct rte_mbuf* pkt) {
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
         static uint32_t counter = 0;
+	static int flag = 1;
+	static int flag_conf = 1;
 	int i;
         int32_t tbl_index;
         struct onvm_flow_entry *flow_entry;
@@ -236,6 +250,27 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 		#endif
                 /* New flow */
 		tbl_index = onvm_flow_dir_add_pkt(pkt, &flow_entry);
+		if(flag == 1){
+			fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf), 0);
+			nf_count++;
+		}
+		else{
+			fwd_nf = (struct forward_nf *)rte_realloc(fwd, sizeof(struct forward_nf) * (nf_count + 1), 0);
+			nf_count++;
+		}
+		if(flag_conf == 1){
+			parse_router_config();
+			flag_conf = 0;
+		}
+		else{
+			system("./docker.sh -h /mnt/huge -o  /proj/postman-PG0/lm/openNetVM -D /dev/uio0,/dev/uio1 -n basic_monitor -c \"./examples/speed_tester/go.sh %d %d %d\"", nf_count, core_index, nf_count + 1);
+			fwd_nf[nf_count - 1].hash = tbl_index;
+			fwd_nf[nf_count - 1].dest = nf_count;
+			core_index++;
+			if(core_index >= SET_CORE){
+				rte_exit(EXIT_FAILURE, "Core index out of range\n");
+			}
+		}
         }
         else {
                 #ifdef DEBUG_PRINT
@@ -273,9 +308,7 @@ int main(int argc, char *argv[]) {
                 onvm_nflib_stop(nf_info);
                 rte_exit(EXIT_FAILURE, "Invalid command-line arguments\n");
         }
-        parse_router_config();
 
-        // Gary's change for the flow_dir
         onvm_flow_dir_nf_init();
         printf("Starting packet handler.\n");
 
