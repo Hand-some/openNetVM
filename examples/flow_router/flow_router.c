@@ -65,15 +65,21 @@
 #define SET_CORE 8
 
 /* router information */
-uint8_t nf_count;
+uint8_t nf_count = 0;
 char * cfg_filename;
 struct forward_nf *fwd_nf;
-static int core_index;
+struct file_nf * f_nf;
 
 struct forward_nf {
         int32_t hash;
         uint8_t dest;
 };
+
+struct file_nf{
+	int 32_t hash;
+	char nf_tag[30];
+};
+
 struct flow_table_entry {
         uint32_t count; /* Number of packets in flow */
         uint8_t action; /* Action to be performed */
@@ -93,6 +99,11 @@ static uint32_t print_delay = 1000000;
 static void
 usage(const char *progname) {
         printf("Usage: %s [EAL args] -- [NF_LIB args] -- <router_config> -p <print_delay>\n\n", progname);
+}
+
+static int
+nf_parse_tag(char * tag){
+	if()
 }
 
 /*
@@ -142,8 +153,8 @@ static int
 parse_router_config(void) {
 	int ret, temp, i;
         int32_t hash;
+	int cur_lcore;
 	int nf_count_pres;
-	char * nf_tags;
         FILE * cfg;
 
         cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
@@ -156,31 +167,36 @@ parse_router_config(void) {
 	if (temp <= 0) {
                 rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
         }
-        nf_count_pres = nf_count;
-	nf_count += temp;
-
-	for (i = nf_count_pres; i < nf_count; i++) {
-                ret = fscanf(cfg, "%I32d %s", &hash, nf_tags);
+        
+	nf_count = temp;
+	cur_lcore = rte_lcore_id();
+	f_nf = (struct file_nf *)rte_malloc("router file_nf info", sizeof(struct file_nf) * nf_count, 0);
+	
+	for (i = 0; i < nf_count; i++) {
+                ret = fscanf(cfg, "%I32d %s", &hash, f_nf[i].nf_tag);
                 if (ret != 2) {
                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
                 }
-
+		ret = onvm_pkt_parse_hash_key(hash, &f_nf[i].hash);
+		/*
 		fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (i + 1), 0);
-		ret = onvm_pkt_parse_hash_key(hash, &fwd_nf[i].hash);
+		
 
 		//nf_tag's usage?
 
-		fwd_nf[i].dest = i + 1;
-		system("./docker.sh -h /mnt/huge -o  /proj/postman-PG0/lm/openNetVM -D /dev/uio0,/dev/uio1 -n basic_monitor -c \"./examples/speed_tester/go.sh %d %d %d\"", i + 1, core_index, i + 2);
-                core_index++;
-		if(core_index >= SET_CORE){
-			rte_exit(EXIT_FAILURE, "Core index out of range\n");
-		}
+		cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
+		if ((cur_lcore >= RTE_MAX_LCORE) || (cur_lcore == 0))
+                	return;
+		ret = rte_eal_remote_launch(&d2sc_nfrt_start_child, nf_info, cur_lcore);	
+		
+		fwd_nf[i].dest = cur_lcore;
+		*/
+		
 		if (ret < 0) {
                         rte_exit(EXIT_FAILURE, "Error parsing config hash key #%d\n", i);
                 }
 
-                if (nf_tags == NULL) {
+                if (f_nf[i].nf_tag == NULL) {
                         rte_exit(EXIT_FAILURE, "Error parsing config NF_TAG #%d\n", i);
                 }
         }
@@ -256,16 +272,18 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 		}
 		if(flag_conf == 1){
 			parse_router_config();
+			for(i = 0; i < nf_count; i++){
+				fwd_nf[i].hash = f_nf[i].hash;
+				fwd_nf[i].dest = nf_parse_tag(f_nf[i].nf_tag);
+				
+			}
 			flag_conf = 0;
 		}
 		else{
-			system("./docker.sh -h /mnt/huge -o  /proj/postman-PG0/lm/openNetVM -D /dev/uio0,/dev/uio1 -n basic_monitor -c \"./examples/speed_tester/go.sh %d %d %d\"", nf_count, core_index, nf_count + 1);
+			
 			fwd_nf[nf_count - 1].hash = tbl_index;
 			fwd_nf[nf_count - 1].dest = nf_count;
-			core_index++;
-			if(core_index >= SET_CORE){
-				rte_exit(EXIT_FAILURE, "Core index out of range\n");
-			}
+			
 		}
         }
         else {
@@ -276,10 +294,10 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
                 onvm_nflib_stop(nf_info);
                 rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
         }
-    if (++counter == print_delay) {
-        do_stats_display(pkt);
-        counter = 0;
-    }
+	if (++counter == print_delay) {
+        	do_stats_display(pkt);
+        	counter = 0;
+    	}
 	for (i = 0; i < nf_count; i++) {
                 if (fwd_nf[i].hash == tbl_index) {
                         meta->destination = fwd_nf[i].dest;
