@@ -56,6 +56,7 @@
 #include <rte_malloc.h>
 
 #include "onvm_nflib.h"
+#include "onvm_nflib.c"
 #include "onvm_pkt_helper.h"
 #include "onvm_flow_table.h"
 #include "onvm_flow_dir.h"
@@ -77,7 +78,7 @@ struct forward_nf {
 };
 
 struct file_nf{
-	int 32_t hash;
+	int32_t hash;
 	char nf_tag[30];
 };
 
@@ -145,51 +146,6 @@ parse_app_args(int argc, char *argv[], const char *progname) {
         return optind;
 }
 
-/*
- * This function parses the forward config. It takes the filename
- * and fills up the forward nf array. This includes the ip and dest
- * address of the onvm_nf
- */
-
-/* Gary's change here. Rewrite the function of parse_router_config.
- * Now the pkt will be routed by its hash key which the form is onvm_ft_ipv4_5tuple. */
-static int
-parse_router_config(int32_t pkt_hash) {
-	int ret, temp, i;
-        int32_t hash;
-        FILE * cfg;
-
-        cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
-        if (cfg == NULL) {
-                rte_exit(EXIT_FAILURE, "Error openning server \'%s\' config\n", cfg_filename);
-        }
-	// In the config_hash file, first line's second parameter is the default nf router number.
-        ret = fscanf(cfg, "%*s %d", &temp);
-
-	if (temp <= 0) {
-                rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
-        }
-	
-	for (i = 0; i < temp; i++) {
-                ret = fscanf(cfg, "%I32d %s", &hash, f_nf[i].nf_tag);
-                if (ret != 2) {
-                        rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
-                }
-		if(hash == pkt_hash)
-			return 1;
-		else
-			return 0;
-		ret = onvm_pkt_parse_hash_key(hash, &f_nf[i].hash);		
-		if (ret < 0) {
-                        rte_exit(EXIT_FAILURE, "Error parsing config hash key #%d\n", i);
-                }
-
-                if (f_nf[i].nf_tag == NULL) {
-                        rte_exit(EXIT_FAILURE, "Error parsing config NF_TAG #%d\n", i);
-                }
-        }
-	return ret;
-}
 
 /*
  * This function displays stats. It uses ANSI terminal codes to clear
@@ -226,25 +182,25 @@ do_stats_display(struct rte_mbuf* pkt) {
 
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
-        static uint32_t counter = 0;
+    static uint32_t counter = 0;
 	static int flag = 1;
-	int i, temp, hash;
-	int conf_extinct;
-        int32_t tbl_index;
-        char new_nf_tag[30], file_nf_tag[30];
+	int i, temp, hash, ret;
+	int conf_extinct, cur_lcore;
+    int32_t tbl_index;
+    char new_nf_tag[30], file_nf_tag[30];
 	struct onvm_flow_entry *flow_entry;
 	FILE * cfg;
 
-        if(!onvm_pkt_is_ipv4(pkt)) {
-                printf("Non-ipv4 packet\n");
-                meta->action = ONVM_NF_ACTION_DROP;
-                meta->destination = 0;
-                return 0;
-        }
-	
+    if(!onvm_pkt_is_ipv4(pkt)) {
+        printf("Non-ipv4 packet\n");
+        meta->action = ONVM_NF_ACTION_DROP;
+        meta->destination = 0;
+        return 0;
+    }
+
 	cur_lcore = rte_lcore_id();
-	
-        tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
+
+    tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
 
 	if(tbl_index >= 0);
 
@@ -262,7 +218,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 			fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (nf_count + 1), 0);
 			nf_count++;
 		}
-		
+
 		/* read the config file */
 		cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
        		if (cfg == NULL) {
@@ -291,7 +247,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 			}
        	 	}
 		/* config file read finish */
-		
+
 		/* No suitable hash in config file */
 		if(i == temp){
 			new_nf_tag = "basic_monitor";
@@ -305,7 +261,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 				}
 				fwd_nf[i].dest = new_nf->instance_id;
 		}
-		
+
         }
         else {
                 #ifdef DEBUG_PRINT
