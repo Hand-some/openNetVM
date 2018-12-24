@@ -96,7 +96,8 @@ static uint32_t print_delay = 1000000;
 
 
 static int onvm_nf_start_child(void * arg){
-	char nf_name = (char *)arg;
+	char nf_name[30];
+	nf_name = (char *)arg;
 	new_nf = onvm_nflib_info_init(nf_name);
 	return 0;
 }
@@ -230,17 +231,17 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
                 	rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
         	}
 		for (i = 0; i < temp; i++) {
-               		ret = fscanf(cfg, "%I32d %s", &hash, file_nf_tag);
-                	if (ret != 2) {
-                        	rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
-                	}
+            ret = fscanf(cfg, "%I32d %s", &hash, file_nf_tag);
+            if (ret != 2) {
+                rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
+            }
 			if(hash == tbl_index){
 				cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-				fwd_nf[nf_count].hash == tbl_index;
+				fwd_nf[nf_count].hash = tbl_index;
 				new_nf_tag = file_nf_tag;
 				ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
 				if (ret == -EBUSY) {
-					RTE_LOG(INFO, NFRT, "Core %u is busy, skipping...\n", core);
+					RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", core);
 					continue;
 				}
 				fwd_nf[i].dest = new_nf->instance_id;
@@ -252,12 +253,11 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 		if(i == temp){
 			new_nf_tag = "basic_monitor";
 			cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-				fwd_nf[nf_count].hash == tbl_index;
+				fwd_nf[nf_count].hash = tbl_index;
 				new_nf_tag = file_nf_tag;
 				ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
 				if (ret == -EBUSY) {
-					RTE_LOG(INFO, NFRT, "Core %u is busy, skipping...\n", core);
-					continue;
+					RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", core);
 				}
 				fwd_nf[i].dest = new_nf->instance_id;
 		}
