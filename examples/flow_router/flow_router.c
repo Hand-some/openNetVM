@@ -69,6 +69,7 @@ uint8_t nf_count = 0;
 char * cfg_filename;
 struct forward_nf *fwd_nf;
 struct file_nf * f_nf;
+struct onvm_nf_info * new_nf;   //This variable will be used only when create new_nf in a new thread.
 
 struct forward_nf {
         int32_t hash;
@@ -93,6 +94,13 @@ struct onvm_nf_info *nf_info;
 static uint32_t print_delay = 1000000;
 
 
+static int onvm_nf_start_child(void * arg){
+	char nf_name = (char *)arg;
+	new_nf = onvm_nflib_info_init(nf_name);
+	return 0;
+}
+
+
 /*
  * Print a usage message
  */
@@ -101,10 +109,6 @@ usage(const char *progname) {
         printf("Usage: %s [EAL args] -- [NF_LIB args] -- <router_config> -p <print_delay>\n\n", progname);
 }
 
-static int
-nf_parse_tag(char * tag){
-	if()
-}
 
 /*
  * Parse the application arguments.
@@ -150,11 +154,9 @@ parse_app_args(int argc, char *argv[], const char *progname) {
 /* Gary's change here. Rewrite the function of parse_router_config.
  * Now the pkt will be routed by its hash key which the form is onvm_ft_ipv4_5tuple. */
 static int
-parse_router_config(void) {
+parse_router_config(int32_t pkt_hash) {
 	int ret, temp, i;
         int32_t hash;
-	int cur_lcore;
-	int nf_count_pres;
         FILE * cfg;
 
         cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
@@ -167,31 +169,17 @@ parse_router_config(void) {
 	if (temp <= 0) {
                 rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
         }
-        
-	nf_count = temp;
-	cur_lcore = rte_lcore_id();
-	f_nf = (struct file_nf *)rte_malloc("router file_nf info", sizeof(struct file_nf) * nf_count, 0);
 	
-	for (i = 0; i < nf_count; i++) {
+	for (i = 0; i < temp; i++) {
                 ret = fscanf(cfg, "%I32d %s", &hash, f_nf[i].nf_tag);
                 if (ret != 2) {
                         rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
                 }
-		ret = onvm_pkt_parse_hash_key(hash, &f_nf[i].hash);
-		/*
-		fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (i + 1), 0);
-		
-
-		//nf_tag's usage?
-
-		cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-		if ((cur_lcore >= RTE_MAX_LCORE) || (cur_lcore == 0))
-                	return;
-		ret = rte_eal_remote_launch(&d2sc_nfrt_start_child, nf_info, cur_lcore);	
-		
-		fwd_nf[i].dest = cur_lcore;
-		*/
-		
+		if(hash == pkt_hash)
+			return 1;
+		else
+			return 0;
+		ret = onvm_pkt_parse_hash_key(hash, &f_nf[i].hash);		
 		if (ret < 0) {
                         rte_exit(EXIT_FAILURE, "Error parsing config hash key #%d\n", i);
                 }
@@ -240,10 +228,12 @@ static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
         static uint32_t counter = 0;
 	static int flag = 1;
-	static int flag_conf = 1;
-	int i;
+	int i, temp, hash;
+	int conf_extinct;
         int32_t tbl_index;
-        struct onvm_flow_entry *flow_entry;
+        char new_nf_tag[30], file_nf_tag[30];
+	struct onvm_flow_entry *flow_entry;
+	FILE * cfg;
 
         if(!onvm_pkt_is_ipv4(pkt)) {
                 printf("Non-ipv4 packet\n");
@@ -251,7 +241,9 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
                 meta->destination = 0;
                 return 0;
         }
-
+	
+	cur_lcore = rte_lcore_id();
+	
         tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
 
 	if(tbl_index >= 0);
@@ -270,21 +262,50 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 			fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (nf_count + 1), 0);
 			nf_count++;
 		}
-		if(flag_conf == 1){
-			parse_router_config();
-			for(i = 0; i < nf_count; i++){
-				fwd_nf[i].hash = f_nf[i].hash;
-				fwd_nf[i].dest = nf_parse_tag(f_nf[i].nf_tag);
-				
+		
+		/* read the config file */
+		cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
+       		if (cfg == NULL) {
+                	rte_exit(EXIT_FAILURE, "Error openning server \'%s\' config\n", cfg_filename);
+        	}
+		// In the config_hash file, first line's second parameter is the default nf router number.
+        	ret = fscanf(cfg, "%*s %d", &temp);
+		if (temp <= 0) {
+                	rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
+        	}
+		for (i = 0; i < temp; i++) {
+               		ret = fscanf(cfg, "%I32d %s", &hash, file_nf_tag);
+                	if (ret != 2) {
+                        	rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
+                	}
+			if(hash == tbl_index){
+				cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
+				fwd_nf[nf_count].hash == tbl_index;
+				new_nf_tag = file_nf_tag;
+				ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
+				if (ret == -EBUSY) {
+					RTE_LOG(INFO, NFRT, "Core %u is busy, skipping...\n", core);
+					continue;
+				}
+				fwd_nf[i].dest = new_nf->instance_id;
 			}
-			flag_conf = 0;
+       	 	}
+		/* config file read finish */
+		
+		/* No suitable hash in config file */
+		if(i == temp){
+			new_nf_tag = "basic_monitor";
+			cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
+				fwd_nf[nf_count].hash == tbl_index;
+				new_nf_tag = file_nf_tag;
+				ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
+				if (ret == -EBUSY) {
+					RTE_LOG(INFO, NFRT, "Core %u is busy, skipping...\n", core);
+					continue;
+				}
+				fwd_nf[i].dest = new_nf->instance_id;
 		}
-		else{
-			
-			fwd_nf[nf_count - 1].hash = tbl_index;
-			fwd_nf[nf_count - 1].dest = nf_count;
-			
-		}
+		
         }
         else {
                 #ifdef DEBUG_PRINT
