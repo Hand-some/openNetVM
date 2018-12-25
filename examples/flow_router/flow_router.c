@@ -71,6 +71,7 @@ char * cfg_filename;
 struct forward_nf *fwd_nf;
 struct file_nf * f_nf;
 struct onvm_nf_info * new_nf;   //This variable will be used only when create new_nf in a new thread.
+int step_nstance_id; 	//This variable will be used when get this nf's instance_id and assign for other nfs.
 
 struct forward_nf {
         int32_t hash;
@@ -96,7 +97,7 @@ static uint32_t print_delay = 1000000;
 
 
 static int onvm_nf_start_child(void * arg){
-	char nf_name[30];
+	char *nf_name;
 	nf_name = (char *)arg;
 	new_nf = onvm_nflib_info_init(nf_name);
 	return 0;
@@ -183,25 +184,25 @@ do_stats_display(struct rte_mbuf* pkt) {
 
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
-    static uint32_t counter = 0;
+    	static uint32_t counter = 0;
 	static int flag = 1;
 	int i, temp, hash, ret;
 	int conf_extinct, cur_lcore;
-    int32_t tbl_index;
-    char new_nf_tag[30], file_nf_tag[30];
+    	int32_t tbl_index;
+    	char new_nf_tag[30], file_nf_tag[30];
 	struct onvm_flow_entry *flow_entry;
 	FILE * cfg;
 
-    if(!onvm_pkt_is_ipv4(pkt)) {
-        printf("Non-ipv4 packet\n");
-        meta->action = ONVM_NF_ACTION_DROP;
-        meta->destination = 0;
-        return 0;
-    }
+    	if(!onvm_pkt_is_ipv4(pkt)) {
+        	printf("Non-ipv4 packet\n");
+        	meta->action = ONVM_NF_ACTION_DROP;
+        	meta->destination = 0;
+        	return 0;
+    	}
 
 	cur_lcore = rte_lcore_id();
 
-    tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
+    	tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
 
 	if(tbl_index >= 0);
 
@@ -238,12 +239,14 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 			if(hash == tbl_index){
 				cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
 				fwd_nf[nf_count].hash = tbl_index;
-				new_nf_tag = file_nf_tag;
+				strcpy(new_nf_tag, file_nf_tag);
 				ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
 				if (ret == -EBUSY) {
-					RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", core);
+					RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
 					continue;
 				}
+				new_nf->instance_id = (++step_instance_id);
+				onvm_nflib_start_nf(new_nf);
 				fwd_nf[i].dest = new_nf->instance_id;
 			}
        	 	}
@@ -251,15 +254,15 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 
 		/* No suitable hash in config file */
 		if(i == temp){
-			new_nf_tag = "basic_monitor";
+			strcpy(new_nf_tag, "basic_monitor");
 			cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-				fwd_nf[nf_count].hash = tbl_index;
-				new_nf_tag = file_nf_tag;
-				ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
-				if (ret == -EBUSY) {
-					RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", core);
-				}
-				fwd_nf[i].dest = new_nf->instance_id;
+			fwd_nf[nf_count].hash == tbl_index;
+			ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
+			if (ret == -EBUSY) {
+				RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
+			}
+			onvm_nflib_start_nf(new_nf);
+			fwd_nf[i].dest = new_nf->instance_id;
 		}
 
         }
@@ -302,6 +305,7 @@ int main(int argc, char *argv[]) {
                 onvm_nflib_stop(nf_info);
                 rte_exit(EXIT_FAILURE, "Invalid command-line arguments\n");
         }
+	step_instance_id = nf_info->instance_id; //get the first instance_id.
 
         onvm_flow_dir_nf_init();
         printf("Starting packet handler.\n");
