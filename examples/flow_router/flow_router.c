@@ -247,6 +247,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 		if(flag == 1){
 			fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf), 0);
 			nf_count++;
+			flag = 0;
 		}
 		else{
 			fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (nf_count + 1), 0);
@@ -263,7 +264,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 		if (temp < 0) {
                 	rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
         	}
-        flag_file_read = 0;
+       	 	flag_file_read = 0;
 		for (i = 0; i < temp; i++) {
 			ret = fscanf(cfg, "%I32d %s", &hash, file_nf_tag);
 			if (ret != 2) {
