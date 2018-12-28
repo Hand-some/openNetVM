@@ -54,6 +54,8 @@
 #include <rte_ip.h>
 #include <rte_arp.h>
 #include <rte_malloc.h>
+#include <rte_compat.h>
+#include <rte_hash.h>
 
 #include "onvm_nflib.h"
 #include "onvm_nflib.c"
@@ -64,6 +66,7 @@
 
 #define NF_TAG "flow_router"
 #define SET_CORE 8
+#define HASH_TABLE_NUM 1024
 
 /* router information */
 uint8_t nf_count = 0;
@@ -71,7 +74,7 @@ char * cfg_filename;
 struct forward_nf *fwd_nf;
 struct file_nf * f_nf;
 struct onvm_nf_info * new_nf;   //This variable will be used only when create new_nf in a new thread.
-int step_nstance_id; 	//This variable will be used when get this nf's instance_id and assign for other nfs.
+int step_instance_id; 	//This variable will be used when get this nf's instance_id and assign for other nfs.
 
 struct forward_nf {
         int32_t hash;
@@ -83,14 +86,10 @@ struct file_nf{
 	char nf_tag[30];
 };
 
-struct flow_table_entry {
-        uint32_t count; /* Number of packets in flow */
-        uint8_t action; /* Action to be performed */
-        uint16_t destination; /* where to go next */
-};
 
 /* Struct that contains information about this NF */
 struct onvm_nf_info *nf_info;
+struct rte_hash* pkt_hash_table;
 
 /* number of package between each print */
 static uint32_t print_delay = 1000000;
@@ -102,7 +101,6 @@ static int onvm_nf_start_child(void * arg){
 	new_nf = onvm_nflib_info_init(nf_name);
 	return 0;
 }
-
 
 /*
  * Print a usage message
@@ -182,37 +180,70 @@ do_stats_display(struct rte_mbuf* pkt) {
         }
 }
 
+static struct rte_hash*
+get_rte_hash_table(void){
+    struct rte_hash* h;
+    struct rte_hash_parameters ipv4_hash_params = {
+            .name = NULL,
+            .entries = HASH_TABLE_NUM,
+            .key_len = sizeof(struct onvm_ft_ipv4_5tuple),
+            .hash_func = NULL,
+            .hash_func_init_val = 0,
+    };
+    char s[64];
+    /* create ipv4 hash table. use core number and cycle counter to get a unique name. */
+    ipv4_hash_params.name = s;
+    ipv4_hash_params.socket_id = rte_socket_id();
+    snprintf(s, sizeof(s), "onvm_ft_%d", rte_lcore_id());
+    h = rte_hash_create(&ipv4_hash_params);
+    if (h == NULL) {
+            return NULL;
+    }
+    else
+        return h;
+}
+
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
     	static uint32_t counter = 0;
-	static int flag = 1;
-	int i, temp, hash, ret;
+	static int flag = 1, flag_hash_table = 1;
+	int flag_file_read;//flag_file_read is to signal if the file has the hash key
+	int i, temp, hash, ret, err;
 	int conf_extinct, cur_lcore;
-    	int32_t tbl_index;
+    	int32_t tbl_index;      //This variable is aimed at find the dest
     	char new_nf_tag[30], file_nf_tag[30];
-	struct onvm_flow_entry *flow_entry;
+    struct onvm_ft_ipv4_5tuple key;
+
+	//struct onvm_flow_entry *flow_entry;
 	FILE * cfg;
 
-    	if(!onvm_pkt_is_ipv4(pkt)) {
-        	printf("Non-ipv4 packet\n");
-        	meta->action = ONVM_NF_ACTION_DROP;
-        	meta->destination = 0;
-        	return 0;
-    	}
-
 	cur_lcore = rte_lcore_id();
-
-	onvm_ft_fill_key(&key, pkt)
-    	tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
+    err = onvm_ft_fill_key(&key, pkt);  //get the key from the pkt
+    if (err < 0) {
+        return err;
+    }
+    if(flag_hash_table == 1){   //the hash table has not been initialized
+        pkt_hash_table = get_rte_hash_table();
+        flag_hash_table = 0;
+    }
+    tbl_index = rte_hash_lookup_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
+    //find the hash key in the pkt hash table
 
 	if(tbl_index >= 0);
-
-	else if (tbl_index == -ENOENT) {
+    else if (tbl_index == -EINVAL){
+        #ifdef DEBUG_PRINT
+        printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
+        onvm_pkt_print(pkt);
+        #endif
+        onvm_nflib_stop(nf_info);
+        rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
+    }
+	else {
 		#ifdef DEBUG_PRINT
 		printf("Unkown flow\n");
 		#endif
                 /* New flow */
-		tbl_index = onvm_flow_dir_add_pkt(pkt, &flow_entry);
+		tbl_index = rte_hash_add_key_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
 		if(flag == 1){
 			fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf), 0);
 			nf_count++;
@@ -229,14 +260,15 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
         	}
 		// In the config_hash file, first line's second parameter is the default nf router number.
         	ret = fscanf(cfg, "%*s %d", &temp);
-		if (temp <= 0) {
+		if (temp < 0) {
                 	rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
         	}
+        flag_file_read = 0;
 		for (i = 0; i < temp; i++) {
-            ret = fscanf(cfg, "%I32d %s", &hash, file_nf_tag);
-            if (ret != 2) {
-                rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
-            }
+			ret = fscanf(cfg, "%I32d %s", &hash, file_nf_tag);
+			if (ret != 2) {
+				rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
+			}
 			if(hash == tbl_index){
 				cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
 				fwd_nf[nf_count].hash = tbl_index;
@@ -249,15 +281,16 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 				new_nf->instance_id = (++step_instance_id);
 				onvm_nflib_start_nf(new_nf);
 				fwd_nf[i].dest = new_nf->instance_id;
+				flag_file_read = 1;
 			}
-       	 	}
+        }
 		/* config file read finish */
 
 		/* No suitable hash in config file */
-		if(i == temp){
+		if(flag_file_read == 0){
 			strcpy(new_nf_tag, "basic_monitor");
 			cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-			fwd_nf[nf_count].hash == tbl_index;
+			fwd_nf[nf_count].hash = tbl_index;
 			ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
 			if (ret == -EBUSY) {
 				RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
@@ -266,14 +299,6 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 			fwd_nf[i].dest = new_nf->instance_id;
 		}
 
-        }
-        else {
-                #ifdef DEBUG_PRINT
-                printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
-                onvm_pkt_print(pkt);
-                #endif
-                onvm_nflib_stop(nf_info);
-                rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
         }
 	if (++counter == print_delay) {
         	do_stats_display(pkt);
