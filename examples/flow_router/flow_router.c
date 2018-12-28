@@ -202,6 +202,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 
 	cur_lcore = rte_lcore_id();
 
+	onvm_ft_fill_key(&key, pkt)
     	tbl_index = onvm_flow_dir_get_pkt(pkt, &flow_entry);
 
 	if(tbl_index >= 0);
