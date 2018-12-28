@@ -212,32 +212,32 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 	int conf_extinct, cur_lcore;
     	int32_t tbl_index;      //This variable is aimed at find the dest
     	char new_nf_tag[30], file_nf_tag[30];
-    struct onvm_ft_ipv4_5tuple key;
+    	struct onvm_ft_ipv4_5tuple key;
 
 	//struct onvm_flow_entry *flow_entry;
 	FILE * cfg;
 
 	cur_lcore = rte_lcore_id();
-    err = onvm_ft_fill_key(&key, pkt);  //get the key from the pkt
-    if (err < 0) {
-        return err;
-    }
-    if(flag_hash_table == 1){   //the hash table has not been initialized
-        pkt_hash_table = get_rte_hash_table();
-        flag_hash_table = 0;
-    }
-    tbl_index = rte_hash_lookup_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
-    //find the hash key in the pkt hash table
+    	err = onvm_ft_fill_key(&key, pkt);  //get the key from the pkt
+    	if (err < 0) {
+        	return err;
+    	}
+    	if(flag_hash_table == 1){   //the hash table has not been initialized
+        	pkt_hash_table = get_rte_hash_table();
+        	flag_hash_table = 0;
+    	}
+    	tbl_index = rte_hash_lookup_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
+    	//find the hash key in the pkt hash table
 
 	if(tbl_index >= 0);
-    else if (tbl_index == -EINVAL){
-        #ifdef DEBUG_PRINT
-        printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
-        onvm_pkt_print(pkt);
-        #endif
-        onvm_nflib_stop(nf_info);
-        rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
-    }
+    	else if (tbl_index == -EINVAL){
+        	#ifdef DEBUG_PRINT
+        	printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
+        	onvm_pkt_print(pkt);
+        	#endif
+		onvm_nflib_stop(nf_info);
+		rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
+	}
 	else {
 		#ifdef DEBUG_PRINT
 		printf("Unkown flow\n");
