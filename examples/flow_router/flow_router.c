@@ -204,7 +204,7 @@ get_rte_hash_table(void){
 }
 
 static int
-packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta) {
+packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
     	static uint32_t counter = 0;
 	static int flag = 1, flag_hash_table = 1;
 	int flag_file_read;//flag_file_read is to signal if the file has the hash key
@@ -235,7 +235,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta) {
         	printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
         	onvm_pkt_print(pkt);
         	#endif
-		onvm_nflib_stop();
+		onvm_nflib_stop(nf_info);
 		rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
 	}
 	else {
