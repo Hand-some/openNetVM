@@ -209,7 +209,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 	static int flag = 1, flag_hash_table = 1;
 	int flag_file_read;//flag_file_read is to signal if the file has the hash key
 	int i, temp, hash, ret, err;
-	int conf_extinct, cur_lcore;
+	int cur_lcore;
     	int32_t tbl_index;      //This variable is aimed at find the dest
     	char new_nf_tag[30], file_nf_tag[30];
     	struct onvm_ft_ipv4_5tuple key;
