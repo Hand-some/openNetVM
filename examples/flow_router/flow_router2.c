@@ -94,6 +94,18 @@ struct rte_hash* pkt_hash_table;
 /* number of package between each print */
 static uint32_t print_delay = 1000000;
 
+start_new_nf_ocore(char * new_nf_tag){
+	if(!strcmp(new_nf_tag, "aes_decrypt"))
+		sprintf(start_nf_command, "$ONVM_HOME/example/%s/go.sh %d %d %d", new_nf_tag, corelist, service_id, dest_id);
+	else if(!strcmp(new_nf_tag, "aes_encrypt"))
+		sprintf(start_nf_command, "$ONVM_HOME/example/%s/go.sh %d %d %d", new_nf_tag, corelist, service_id, dest_id);
+	else if(!strcmp(new_nf_tag, "arp_response"))
+		sprintf(start_nf_command, "$ONVM_HOME/example/%s/go.sh %d %d %d -s %s", new_nf_tag, corelist, service_id, dest_id, ip_list);
+	else if(!strcmp(new_nf_tag, "basic_monitor"))
+		sprintf(start_nf_command, "$ONVM_HOME/example/%s/go.sh %d %d", new_nf_tag, corelist, service_id);
+	else if(!strcmp(new_nf_tag, "bridge"))
+		sprintf(start_nf_command, "$ONVM_HOME/example/%s/go.sh %d %d %d", new_nf_tag, corelist, service_id);
+}
 
 static int onvm_new_nf_start_remote(void * arg){
         char *nf_name;
@@ -271,7 +283,7 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
         tbl_index = rte_hash_lookup_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
         //find the hash key in the pkt hash table
 
-        if(tbl_index >= 0);
+        if(tbl_index >= 0);//The hash key is already in the hash table, so the flow can auto select the destination without create new nfs.
         else if (tbl_index == -EINVAL){
                 #ifdef DEBUG_PRINT
                 printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
@@ -314,16 +326,13 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
 			ret = fscanf(cfg, "%I32d %d", &hash, nf_number);
 			for(j = 0; j < nf_number; j++){
             			fscanf(fp, "%s", file_nf_tag);
-				if(hash == tbl_index){
+				if(hash == tbl_index){		//This means that a new nf is needed to be created.
 					cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
 					fwd_nf[nf_count].hash = tbl_index;
 					strcpy(new_nf_tag, file_nf_tag);
-					ret = rte_eal_remote_launch(&onvm_new_nf_start_remote, new_nf_tag, cur_lcore);  
-					
-					if (ret == -EBUSY) {
-						RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
-						continue;
-					}
+					//ret = rte_eal_remote_launch(&onvm_new_nf_start_remote, new_nf_tag, cur_lcore);  
+					//This sentence is to start a new thread on the cur_lcore core with the new_nf_tag nf. 
+					start_new_nf_ocore(new_nf_tag);
 					nf_count++;
 					flag_file_read = 1; 
 				}
@@ -341,10 +350,9 @@ packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((
                         strcpy(new_nf_tag, "basic_monitor");
                         cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
                         fwd_nf[nf_count].hash = tbl_index;
-                        ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
-                        if (ret == -EBUSY) {
-                                RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
-                        }
+                        //ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
+			start_new_nf_ocore(new_nf_tag);
+                        nf_count++;
                  }
         }
         if (++counter == print_delay) {
@@ -378,7 +386,6 @@ int main(int argc, char *argv[]) {
                 onvm_nflib_stop(nf_info);
                 rte_exit(EXIT_FAILURE, "Invalid command-line arguments\n");
         }
-        step_instance_id = nf_info->instance_id; //get the first instance_id.
 
         onvm_flow_dir_nf_init();
         printf("Starting packet handler.\n");
