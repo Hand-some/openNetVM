@@ -71,7 +71,7 @@
 /* router information */
 uint8_t nf_count = 0;
 char * cfg_filename;
-struct forward_nf *fwd_nf;
+struct forward_nf fwd_nf[20];
 struct file_nf * f_nf;
 struct onvm_nf_info * new_nf;   //This variable will be used only when create new_nf in a new thread.
 int step_instance_id; 	//This variable will be used when get this nf's instance_id and assign for other nfs.
@@ -82,8 +82,8 @@ struct forward_nf {
 };
 
 struct file_nf{
-	int32_t hash;
-	char nf_tag[30];
+        int32_t hash;
+        char nf_tag[30];
 };
 
 
@@ -95,11 +95,50 @@ struct rte_hash* pkt_hash_table;
 static uint32_t print_delay = 1000000;
 
 
-static int onvm_nf_start_child(void * arg){
-	char *nf_name;
+static int onvm_new_nf_start_remote(void * arg){
+        char *nf_name;
+	
+	char dir_group[100];
+        char set_core[100];
+        char set_task[100];
+        char temp_command[100];
+        char set_proportion[100];
+        int pid_thread;
+        int nf_instance_id;
+        int nf_core = 8;
+        int proportion = 1024;
+	
+	nf_instance_id = step_instance_id;
+	//nf_core and proportion need to be set here.
+	
 	nf_name = (char *)arg;
-	new_nf = onvm_nflib_info_init(nf_name);
-	return 0;
+	
+        new_nf = onvm_nflib_info_init(nf_name);
+	new_nf->instance_id = ++step_instance_id;
+	new_nf->service_id = new_nf->instance_id;
+	new_nf->tag = nf_name;
+	fwd_nf[nf_count].dest = new_nf->instance_id;
+	
+	pid_thread = getpid();
+	// operation with cgroup
+        sprintf(dir_group, "sudo mkdir /sys/fs/cgroup/cpu_test/nf%d", nf_instance_id);
+        system(dir_group);
+        printf("ok\n");
+        sprintf(temp_command, "sudo chmod -R 777 /sys/fs/cgroup/cpu_test/nf%d", nf_instance_id);
+        system(temp_command);
+        sprintf(set_core, "sudo echo %d > /sys/fs/cgroup/cpu_test/nf%d/cpuset.cpus", nf_core, nf_instance_id);
+        system(set_core);
+        sprintf(temp_command, "sudo echo 0 > /sys/fs/cgroup/cpu_test/nf%d/cpuset.mems", nf_instance_id);
+        system(temp_command);
+        sprintf(set_task, "sudo echo %d > /sys/fs/cgroup/cpu_test/nf%d/tasks", pid_thread, nf_instance_id);
+        system(set_task);
+        sprintf(set_proportion, "sudo echo %d > /sys/fs/cgroup/cpu_test/nf%d/cpu.shares", proportion, nf_instance_id);
+        system(set_proportion);
+	//end of the cgroup
+	
+	onvm_nflib_start_nf(new_nf);
+	onvm_nflib_run(new_nf, &packet_handler);
+        return 0;
 }
 
 /*
@@ -182,139 +221,146 @@ do_stats_display(struct rte_mbuf* pkt) {
 
 static struct rte_hash*
 get_rte_hash_table(void){
-    struct rte_hash* h;
-    struct rte_hash_parameters ipv4_hash_params = {
-            .name = NULL,
-            .entries = HASH_TABLE_NUM,
-            .key_len = sizeof(struct onvm_ft_ipv4_5tuple),
-            .hash_func = NULL,
-            .hash_func_init_val = 0,
-    };
-    char s[64];
-    /* create ipv4 hash table. use core number and cycle counter to get a unique name. */
-    ipv4_hash_params.name = s;
-    ipv4_hash_params.socket_id = rte_socket_id();
-    snprintf(s, sizeof(s), "onvm_ft_%d", rte_lcore_id());
-    h = rte_hash_create(&ipv4_hash_params);
-    if (h == NULL) {
-            return NULL;
-    }
-    else
-        return h;
+        struct rte_hash* h;
+        struct rte_hash_parameters ipv4_hash_params = {
+                .name = NULL,
+                .entries = HASH_TABLE_NUM,
+                .key_len = sizeof(struct onvm_ft_ipv4_5tuple),
+                .hash_func = NULL,
+                .hash_func_init_val = 0,
+        };
+        char s[64];
+        /* create ipv4 hash table. use core number and cycle counter to get a unique name. */
+        ipv4_hash_params.name = s;
+        ipv4_hash_params.socket_id = rte_socket_id();
+        snprintf(s, sizeof(s), "onvm_ft_%d", rte_lcore_id());
+        h = rte_hash_create(&ipv4_hash_params);
+        if (h == NULL) {
+                return NULL;
+        }
+        else
+                return h;
 }
 
 static int
 packet_handler(struct rte_mbuf *pkt, struct onvm_pkt_meta *meta, __attribute__((unused)) struct onvm_nf_info *nf_info) {
-    	static uint32_t counter = 0;
-	static int flag = 1, flag_hash_table = 1;
-	int flag_file_read;//flag_file_read is to signal if the file has the hash key
-	int i, temp, hash, ret, err;
-	int cur_lcore;
-    	int32_t tbl_index;      //This variable is aimed at find the dest
-    	char new_nf_tag[30], file_nf_tag[30];
-    	struct onvm_ft_ipv4_5tuple key;
+        static uint32_t counter = 0;
+        static int flag = 1, flag_hash_table = 1;       //flag is for the creation of fwd_nf
+                                                        //flag_hash_table is for the initialization of hash_table
+        int flag_file_read, nf_number, hash;		//flag_file_read is to signal if the file has the hash key
+        int i, j, temp, ret, err;
+        int cur_lcore;
+        int32_t tbl_index;      //This variable is aimed at find the dest
+        char new_nf_tag[30], file_nf_tag[30];
+        struct onvm_ft_ipv4_5tuple key;
 
-	//struct onvm_flow_entry *flow_entry;
-	FILE * cfg;
+        //struct onvm_flow_entry *flow_entry;
+        FILE * cfg;
 
-	cur_lcore = rte_lcore_id();
-    	err = onvm_ft_fill_key(&key, pkt);  //get the key from the pkt
-    	if (err < 0) {
-        	return err;
-    	}
-    	if(flag_hash_table == 1){   //the hash table has not been initialized
-        	pkt_hash_table = get_rte_hash_table();
-        	flag_hash_table = 0;
-    	}
-    	tbl_index = rte_hash_lookup_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
-    	//find the hash key in the pkt hash table
+        cur_lcore = rte_lcore_id();
+        err = onvm_ft_fill_key(&key, pkt);  //get the key from the pkt
+        if (err < 0) {
+                return err;
+        }
+	
+        if(flag_hash_table == 1){   //the hash table has not been initialized
+                pkt_hash_table = get_rte_hash_table();
+                flag_hash_table = 0;		//hash table will not e initialized again.
+        }
+	
+        tbl_index = rte_hash_lookup_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
+        //find the hash key in the pkt hash table
 
-	if(tbl_index >= 0);
-    	else if (tbl_index == -EINVAL){
-        	#ifdef DEBUG_PRINT
-        	printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
-        	onvm_pkt_print(pkt);
-        	#endif
-		onvm_nflib_stop(nf_info);
-		rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
-	}
-	else {
-		#ifdef DEBUG_PRINT
-		printf("Unkown flow\n");
-		#endif
+        if(tbl_index >= 0);
+        else if (tbl_index == -EINVAL){
+                #ifdef DEBUG_PRINT
+                printf("Error in flow lookup: %d (ENOENT=%d, EINVAL=%d)\n", tbl_index, ENOENT, EINVAL);
+                onvm_pkt_print(pkt);
+                #endif
+                onvm_nflib_stop(nf_info);
+                rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
+        }
+        else {
+                #ifdef DEBUG_PRINT
+                printf("Unkown flow\n");
+                #endif
                 /* New flow */
-		tbl_index = rte_hash_add_key_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
-		if(flag == 1){
-			fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf), 0);
-			nf_count++;
-			flag = 0;
-		}
-		else{
-			fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (nf_count + 1), 0);
-			nf_count++;
-		}
-
-		/* read the config file */
-		cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
-       		if (cfg == NULL) {
-                	rte_exit(EXIT_FAILURE, "Error openning server \'%s\' config\n", cfg_filename);
-        	}
-		// In the config_hash file, first line's second parameter is the default nf router number.
-        	ret = fscanf(cfg, "%*s %d", &temp);
-		if (temp < 0) {
-                	rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
-        	}
-       	 	flag_file_read = 0;
-		for (i = 0; i < temp; i++) {
-			ret = fscanf(cfg, "%I32d %s", &hash, file_nf_tag);
-			if (ret != 2) {
-				rte_exit(EXIT_FAILURE, "Invalid backend config structure\n");
-			}
-			if(hash == tbl_index){
-				cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-				fwd_nf[nf_count].hash = tbl_index;
-				strcpy(new_nf_tag, file_nf_tag);
-				ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
-				if (ret == -EBUSY) {
-					RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
-					continue;
+                tbl_index = rte_hash_add_key_with_hash(pkt_hash_table, (const void *)&key, pkt->hash.rss);
+		
+                /* dynamic allowcate the space of fwd_nf
+		if(flag == 1){ //init the fwd_nf structure
+                        fwd_nf = (struct forward_nf *)rte_malloc("router fwd_nf info", sizeof(struct forward_nf), 0);
+                        nf_count++;
+                        flag = 0;
+                }
+                else{  //extend the space of the fwd_nf
+                        fwd_nf = (struct forward_nf *)rte_realloc(fwd_nf, sizeof(struct forward_nf) * (nf_count + 1), 0);
+                        nf_count++;
+                }
+		*/
+		
+                /* read the config file */
+                cfg  = fopen(cfg_filename, "r");	// Read the file name. Remember to input the filename in the go.sh
+                if (cfg == NULL) {
+                        rte_exit(EXIT_FAILURE, "Error openning server \'%s\' config\n", cfg_filename);
+                }
+                // In the config_hash file, first line's second parameter is the default nf router number.
+                ret = fscanf(cfg, "%*s %d", &temp);
+                if (temp < 0) {
+                        rte_exit(EXIT_FAILURE, "Error parsing config, need at least one forward NF configuration\n");
+                }
+                flag_file_read = 0;	//This variable will will change to 1 unless there is no matching hash 
+                for (i = 0; i < temp; i++) {
+			ret = fscanf(cfg, "%I32d %d", &hash, nf_number);
+			for(j = 0; j < nf_number; j++){
+            			fscanf(fp, "%s", file_nf_tag);
+				if(hash == tbl_index){
+					cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
+					fwd_nf[nf_count].hash = tbl_index;
+					strcpy(new_nf_tag, file_nf_tag);
+					ret = rte_eal_remote_launch(&onvm_new_nf_start_remote, new_nf_tag, cur_lcore);  
+					
+					if (ret == -EBUSY) {
+						RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
+						continue;
+					}
+					nf_count++;
+					flag_file_read = 1; 
 				}
-				new_nf->instance_id = (++step_instance_id);
-				onvm_nflib_start_nf(new_nf);
-				fwd_nf[i].dest = new_nf->instance_id;
-				flag_file_read = 1;
+				if(flag_file_read == 1)
+					break;
 			}
+			if(flag_file_read == 1)
+				break;
+                }
+		fclose(cfg);
+                /* config file read finish */
+		
+                /* No suitable hash in config file */
+                if(flag_file_read == 0){
+                        strcpy(new_nf_tag, "basic_monitor");
+                        cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
+                        fwd_nf[nf_count].hash = tbl_index;
+                        ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
+                        if (ret == -EBUSY) {
+                                RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
+                        }
+                 }
         }
-		/* config file read finish */
-
-		/* No suitable hash in config file */
-		if(flag_file_read == 0){
-			strcpy(new_nf_tag, "basic_monitor");
-			cur_lcore = rte_get_next_lcore(cur_lcore, 1, 1);
-			fwd_nf[nf_count].hash = tbl_index;
-			ret = rte_eal_remote_launch(&onvm_nf_start_child, new_nf_tag, cur_lcore);
-			if (ret == -EBUSY) {
-				RTE_LOG(INFO, APP, "Core %u is busy, skipping...\n", cur_lcore);
-			}
-			onvm_nflib_start_nf(new_nf);
-			fwd_nf[i].dest = new_nf->instance_id;
-		}
-
-        }
-	if (++counter == print_delay) {
-        	do_stats_display(pkt);
-        	counter = 0;
+        if (++counter == print_delay) {
+                do_stats_display(pkt);
+                counter = 0;
     	}
-	for (i = 0; i < nf_count; i++) {
+        for (i = 0; i < nf_count; i++) {
                 if (fwd_nf[i].hash == tbl_index) {
                         meta->destination = fwd_nf[i].dest;
                         meta->action = ONVM_NF_ACTION_TONF;
                         return 0;
                 }
         }
-	meta->action = ONVM_NF_ACTION_DROP;
+        meta->action = ONVM_NF_ACTION_DROP;
         meta->destination = 0;
-	return 0;
+        return 0;
 }
 
 
@@ -332,7 +378,7 @@ int main(int argc, char *argv[]) {
                 onvm_nflib_stop(nf_info);
                 rte_exit(EXIT_FAILURE, "Invalid command-line arguments\n");
         }
-	step_instance_id = nf_info->instance_id; //get the first instance_id.
+        step_instance_id = nf_info->instance_id; //get the first instance_id.
 
         onvm_flow_dir_nf_init();
         printf("Starting packet handler.\n");
