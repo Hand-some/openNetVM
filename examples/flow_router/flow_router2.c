@@ -141,6 +141,15 @@ int getPidByName(char * task_name, char * get_pid){
     return 0;
 }
 
+int return_pid_num(char * input_pid){
+    int length = strlen(input_pid);
+    int i;
+    int real_pid = 0;
+    for(i = 0; i < length; i++)
+        real_pid = real_pid * 10 + (input_pid[i] - '0');
+    return real_pid;
+}
+
 int start_new_nf_ocore(char * new_nf_tag){
 	int corelist = 10;
 	int err;
@@ -153,65 +162,68 @@ int start_new_nf_ocore(char * new_nf_tag){
         char set_proportion[100];
         char start_nf_command[100];
 	char pid_thread[30];
+	int pid_nf_thread;
         int proportion = 1024;
 	char onvm_path[50];
 	
 	onvm_path = "";
 
 	if(!strcmp(new_nf_tag, "aes_decrypt")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d %d", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d %d &", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
 		strcpy(new_nf_tag, "aesdecrypt");
 		getPidByName(new_nf_tag, pid_thread);
 	}
 	else if(!strcmp(new_nf_tag, "aes_encrypt")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d %d", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d %d &", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
 		strcpy(new_nf_tag, "aesencrypt");
 		getPidByName(new_nf_tag, pid_thread);	
 	}
 	else if(!strcmp(new_nf_tag, "basic_monitor")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d", onvm_path, new_nf_tag, corelist, service_id);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d &", onvm_path, new_nf_tag, corelist, service_id);
 		strcpy(new_nf_tag, "monitor");
 		getPidByName(new_nf_tag, pid_thread);
 	}
 	else if(!strcmp(new_nf_tag, "bridge")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d", onvm_path, new_nf_tag, corelist, service_id);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d &", onvm_path, new_nf_tag, corelist, service_id);
 		strcpy(new_nf_tag, "bridge");
 		getPidByName(new_nf_tag, pid_thread);	
 	}
 	else if(!strcmp(new_nf_tag, "flow_tracker")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d %d", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d %d &", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
 		strcpy(new_nf_tag, "flow_tracker");
 		getPidByName(new_nf_tag, pid_thread);
 	}
 	else if(!strcmp(new_nf_tag, "ndpi_stats")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d", onvm_path, new_nf_tag, corelist, service_id);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d &", onvm_path, new_nf_tag, corelist, service_id);
 		strcpy(new_nf_tag, "ndpi_stats");
 		getPidByName(new_nf_tag, pid_thread);
 	}
 	//else if(!strcmp(new_nf_tag, "nf_router"))
 		//sprintf(start_nf_command, "$ONVM_HOME/examples/%s/go.sh %d %d %s", new_nf_tag, corelist, service_id, route_config);
 	else if(!strcmp(new_nf_tag, "scaling_example")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d %d", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d %d &", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
 		strcpy(new_nf_tag, "scaling");
 		getPidByName(new_nf_tag, pid_thread);	
 	}
 	else if(!strcmp(new_nf_tag, "simple_forward")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d %d", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d %d &", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
 		strcpy(new_nf_tag, "forward");
 		getPidByName(new_nf_tag, pid_thread);	
 	}
 	else if(!strcmp(new_nf_tag, "speed_tester")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d %d", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d %d &", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
 		strcpy(new_nf_tag, "speed_tester");
 		getPidByName(new_nf_tag, pid_thread);
 	}
 	else if(!strcmp(new_nf_tag, "test_flow_dir")){
-		sprintf(start_nf_command, "%s/examples/%s/go.sh %d %d %d", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
+		sprintf(start_nf_command, "nohup %s/examples/%s/go.sh %d %d %d &", onvm_path, new_nf_tag, corelist, service_id, service_id + 1);
 		strcpy(new_nf_tag, "test_flow_dir");
 		getPidByName(new_nf_tag, pid_thread);
 	}
 	err = system(start_nf_command);
 	strcpy(pid_list[nf_count], pid_thread);
+	
+	pid_nf_thread = return_pid_num(pid_thread);
 
 	sprintf(dir_group, "sudo mkdir /sys/fs/cgroup/cpu_test/nf%d", service_id);		//create the subcgroup
         err = system(dir_group);
@@ -221,7 +233,7 @@ int start_new_nf_ocore(char * new_nf_tag){
         err = system(set_core);
         sprintf(temp_command, "sudo echo 0 > /sys/fs/cgroup/cpu_test/nf%d/cpuset.mems", service_id);		//set the core numa
         err = system(temp_command);
-        sprintf(set_task, "sudo echo %s > /sys/fs/cgroup/cpu_test/nf%d/tasks", pid_thread, service_id);		//set the pid
+        sprintf(set_task, "sudo echo %d > /sys/fs/cgroup/cpu_test/nf%d/tasks", pid_nf_thread, service_id);		//set the pid
         err = system(set_task);
         sprintf(set_proportion, "sudo echo %d > /sys/fs/cgroup/cpu_test/nf%d/cpu.shares", proportion, service_id);	//set the proportion of the new nf
         err = system(set_proportion);
